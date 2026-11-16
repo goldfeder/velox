@@ -306,7 +306,8 @@ SerializedPageFileReader::SerializedPageFileReader(
     VectorSerde* serde,
     std::unique_ptr<VectorSerde::Options> readOptions,
     memory::MemoryPool* pool,
-    IoStats* ioStats)
+    IoStats* ioStats,
+    folly::Executor* readAheadExecutor)
     : readOptions_(std::move(readOptions)),
       pool_(pool),
       serde_(serde),
@@ -315,7 +316,7 @@ SerializedPageFileReader::SerializedPageFileReader(
   auto file =
       fs->openFileForRead(path, filesystems::FileOptions{.stats = ioStats});
   input_ = std::make_unique<common::FileInputStream>(
-      std::move(file), bufferSize, pool_);
+      std::move(file), bufferSize, pool_, readAheadExecutor);
 }
 
 bool SerializedPageFileReader::nextBatch(RowVectorPtr& rowVector) {

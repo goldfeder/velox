@@ -371,13 +371,15 @@ std::unique_ptr<TreeOfLosers<SpillMergeStream>>
 SpillPartition::createOrderedReaderInternal(
     uint64_t bufferSize,
     memory::MemoryPool* pool,
-    exec::SpillStats* spillStats) {
+    exec::SpillStats* spillStats,
+    folly::Executor* readAheadExecutor) {
   std::vector<std::unique_ptr<SpillMergeStream>> streams;
   streams.reserve(files_.size());
   for (auto& fileInfo : files_) {
     streams.push_back(
         FileSpillMergeStream::create(
-            SpillReadFile::create(fileInfo, bufferSize, pool, spillStats)));
+            SpillReadFile::create(
+                fileInfo, bufferSize, pool, spillStats, readAheadExecutor)));
   }
   files_.clear();
   // Check if the partition is empty or not.
@@ -446,14 +448,20 @@ SpillFileInfo mergeSpillFiles(
     uint64_t writeBufferSize,
     SpillFileMergeParams& mergeParams,
     memory::MemoryPool* pool,
-    exec::SpillStats* spillStats) {
+    exec::SpillStats* spillStats,
+    folly::Executor* readAheadExecutor) {
   VELOX_CHECK_GT(files.size(), 0);
   std::vector<std::unique_ptr<SpillMergeStream>> streams;
   streams.reserve(files.size());
   for (const auto& fileInfo : files) {
     streams.push_back(
         FileSpillMergeStream::create(
-            SpillReadFile::create(fileInfo, readBufferSize, pool, spillStats)));
+            SpillReadFile::create(
+                fileInfo,
+                readBufferSize,
+                pool,
+                spillStats,
+                readAheadExecutor)));
   }
   const auto batchRows = estimateOutputBatchRows(
       streams, mergeParams.maxBatchRows, mergeParams.maxBatchBytes);
@@ -523,7 +531,7 @@ SpillPartition::createOrderedReader(
   VELOX_CHECK_NE(numMaxMergeFiles, 1);
   if (numMaxMergeFiles == 0 || files_.size() <= numMaxMergeFiles) {
     return createOrderedReaderInternal(
-        spillConfig.readBufferSize, pool, spillStats);
+        spillConfig.readBufferSize, pool, spillStats, spillConfig.executor);
   }
 
   SpillFileHeap orderedFiles(files_.begin(), files_.end());
@@ -551,7 +559,8 @@ SpillPartition::createOrderedReader(
         spillConfig.writeBufferSize,
         mergeParams,
         pool,
-        spillStats);
+        spillStats,
+        spillConfig.executor);
     orderedFiles.push(mergedFile);
     files.clear();
   }
@@ -562,7 +571,7 @@ SpillPartition::createOrderedReader(
     orderedFiles.pop();
   }
   return createOrderedReaderInternal(
-      spillConfig.readBufferSize, pool, spillStats);
+      spillConfig.readBufferSize, pool, spillStats, spillConfig.executor);
 }
 
 IterableSpillPartitionSet::IterableSpillPartitionSet() {
